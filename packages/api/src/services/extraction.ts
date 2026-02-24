@@ -98,13 +98,16 @@ const CATEGORIES = ['leave', 'health', 'financial', 'professional_development', 
 function extractJson(text: string): any {
   const trimmed = text.trim();
 
+  // 1. Try raw parse
   try { return JSON.parse(trimmed); } catch { /* continue */ }
 
+  // 2. Try extracting from markdown code blocks
   const codeBlockMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
   if (codeBlockMatch) {
     try { return JSON.parse(codeBlockMatch[1].trim()); } catch { /* continue */ }
   }
 
+  // 3. Try brace-matching for complete JSON
   const firstBrace = trimmed.indexOf('{');
   if (firstBrace !== -1) {
     let depth = 0;
@@ -114,6 +117,42 @@ function extractJson(text: string): any {
       if (depth === 0) {
         try { return JSON.parse(trimmed.slice(firstBrace, i + 1)); } catch { break; }
       }
+    }
+  }
+
+  // 4. Handle truncated JSON (e.g. response hit max_tokens mid-output)
+  //    Strip markdown fencing if present, then try to repair the JSON
+  let jsonStr = trimmed;
+  const fenceStart = jsonStr.match(/^```(?:json)?\s*\n?/);
+  if (fenceStart) {
+    jsonStr = jsonStr.slice(fenceStart[0].length);
+  }
+  // Remove trailing incomplete fence
+  jsonStr = jsonStr.replace(/\n?\s*```?\s*$/, '');
+
+  // Find the start of the JSON object
+  const objStart = jsonStr.indexOf('{');
+  if (objStart !== -1) {
+    jsonStr = jsonStr.slice(objStart);
+
+    // Try to repair truncated benefits array:
+    // Remove the last incomplete object/element (after the last complete },)
+    const lastCompleteItem = jsonStr.lastIndexOf('},');
+    if (lastCompleteItem !== -1) {
+      // Close the array and object
+      const repaired = jsonStr.slice(0, lastCompleteItem + 1) + ']';
+      // Count unclosed braces to close the outer object
+      let openBraces = 0;
+      for (const ch of repaired) {
+        if (ch === '{') openBraces++;
+        else if (ch === '}') openBraces--;
+      }
+      const closed = repaired + '}'.repeat(Math.max(0, openBraces));
+      try {
+        const result = JSON.parse(closed);
+        console.warn(`[extraction] Repaired truncated JSON (response likely hit max_tokens)`);
+        return result;
+      } catch { /* continue */ }
     }
   }
 
@@ -199,7 +238,12 @@ async function callClaudeApi(
 
   const result = await response.json() as any;
   const content = result.content?.[0]?.text;
-  console.log(`[extraction] Got response (${content?.length || 0} chars)`);
+  const stopReason = result.stop_reason;
+  console.log(`[extraction] Got response (${content?.length || 0} chars, stop_reason: ${stopReason})`);
+
+  if (stopReason === 'max_tokens') {
+    console.warn('[extraction] Response was truncated (hit max_tokens limit) — will attempt to repair JSON');
+  }
 
   if (!content) {
     throw new Error('AI returned empty response. Please try again.');
@@ -217,7 +261,7 @@ async function scanBenefitsFromPdf(
   const base64 = arrayBufferToBase64(pdfBytes);
   console.log('[extraction] Pass 1: Scanning for benefits...');
 
-  const content = await callClaudeApi(apiKey, base64, SCAN_PROMPT, 4096);
+  const content = await callClaudeApi(apiKey, base64, SCAN_PROMPT, 8192);
   const parsed = extractJson(content);
 
   const benefits: ScannedBenefit[] = (parsed.benefits || []).map((b: any) => ({
