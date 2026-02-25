@@ -1,17 +1,5 @@
 // ── Types ───────────────────────────────────────────────────────────────────
 
-interface ScannedBenefit {
-  name: string;
-  category: string;
-  clause_reference: string | null;
-}
-
-interface ScanResult {
-  benefits: ScannedBenefit[];
-  agreement_title_suggestion: string | null;
-  raw_summary: string;
-}
-
 interface ExtractedBenefit {
   name: string;
   description: string;
@@ -24,6 +12,12 @@ interface ExtractedBenefit {
   plain_english: string | null;
   claim_process: string | null;
   clause_reference: string | null;
+  eligibility_rules: Array<{
+    key: string;
+    operator: string;
+    value: string;
+    label: string;
+  }> | null;
 }
 
 export interface ExtractionResult {
@@ -32,68 +26,77 @@ export interface ExtractionResult {
   raw_summary: string;
 }
 
-// ── Prompts ─────────────────────────────────────────────────────────────────
+// ── Prompt ──────────────────────────────────────────────────────────────────
 
-const SCAN_PROMPT = `You are an expert at analyzing collective bargaining agreements (CBAs) and union contracts.
-Scan the attached PDF and list EVERY benefit, right, entitlement, allowance, protection, and process that could benefit an employee.
+const EXTRACTION_PROMPT = `You are an expert at analyzing collective bargaining agreements (CBAs) and union contracts.
 
-Be exhaustive. Include ALL of the following:
-- Leave types (sick, annual, bereavement, parental, domestic violence, long service, jury duty, etc.)
-- Health benefits (health spending accounts, dental, vision, wellness, EAP, etc.)
-- Financial benefits (allowances, reimbursements, bonuses, superannuation/kiwisaver, etc.)
+Read the attached PDF and extract EVERY benefit, right, entitlement, allowance, protection, and process that could benefit an employee.
+
+Be exhaustive. Include ALL of the following types:
+- Leave (sick, annual, bereavement, parental, domestic violence, long service, jury duty, etc.)
+- Health (health spending accounts, dental, vision, wellness, EAP, etc.)
+- Financial (allowances, reimbursements, bonuses, superannuation/kiwisaver, etc.)
 - Pay entitlements (overtime rates, penalty rates, shift allowances, higher duties, etc.)
 - Professional development (training funds, study leave, conference allowances, etc.)
-- Workplace benefits (flexible work, remote work, parking, uniforms, etc.)
+- Workplace (flexible work, remote work, parking, uniforms, etc.)
 - Protections (redundancy, termination notice, health & safety, discrimination, etc.)
 - Processes (dispute resolution, grievance procedures, consultation rights, etc.)
-- Any other employee entitlements not covered above
+- Any other employee entitlements
 
-For each benefit found, provide:
-- name: Short descriptive name
+Do NOT skip benefits because they seem minor or hard to quantify.
+
+For EACH benefit, provide ALL of these fields:
+- name: Short descriptive name (max 200 chars)
+- description: One-sentence summary for a card display (max 150 chars)
 - category: One of: leave, health, financial, pay, professional_development, workplace, protection, process, other
-- clause_reference: The section/clause number where this appears (e.g., "Section 14.3", "Clause 8.2"), or null if not identifiable
+- clause_text: The EXACT verbatim text from the agreement that establishes this benefit (include the full relevant paragraph)
+- plain_english: A clear 2-4 sentence explanation of what this means in practice, written for someone with no legal background
+- claim_process: How an employee claims or uses this benefit. If the agreement specifies a process, use it. Otherwise suggest a reasonable one (e.g. "Contact HR to request this leave").
+- unit_type: One of: hours, days, weeks, dollars, count. Use "count" for non-quantifiable benefits.
+- limit_amount: The numeric limit (e.g. 15 for "15 days"), or null if unlimited/not quantifiable
+- period: One of: per_month, per_year, per_occurrence, unlimited. Use "unlimited" for non-quantifiable benefits.
+- eligibility_notes: Any conditions, waiting periods, or requirements. Null if none.
+- clause_reference: The section/clause number (e.g. "Section 14.3", "Clause 8.2"), or null if not identifiable
+- eligibility_rules: Array of structured eligibility requirements. For each requirement found in the eligibility_notes, provide:
+  - key: One of "tenure_months" (for time-in-role requirements), "employment_type" (full_time/part_time/casual/permanent/fixed_term), "job_title" (for title/classification requirements), or a descriptive snake_case key for anything else
+  - operator: "gte" (at least), "lte" (at most), "eq" (exactly), "neq" (not), "contains" (includes)
+  - value: The threshold value as a string (e.g. "6" for 6 months, "permanent" for permanent employment)
+  - label: Human-readable label (e.g. "6+ months tenure required", "Permanent employees only")
+  If there are no eligibility restrictions, use an empty array [].
 
-Also provide:
+Also provide at the top level:
 - agreement_title_suggestion: A suggested title for this collective agreement
 - raw_summary: A 2-3 sentence summary of the overall agreement
 
-Do NOT skip benefits because they seem minor or hard to quantify. List everything.
-
-Respond with ONLY valid JSON:
+Respond with ONLY valid JSON — no markdown, no explanation, just the JSON object:
 {
-  "benefits": [{ "name": "...", "category": "...", "clause_reference": "..." }, ...],
   "agreement_title_suggestion": "...",
-  "raw_summary": "..."
+  "raw_summary": "...",
+  "benefits": [
+    {
+      "name": "...",
+      "description": "...",
+      "category": "...",
+      "clause_text": "...",
+      "plain_english": "...",
+      "claim_process": "...",
+      "unit_type": "...",
+      "limit_amount": null,
+      "period": "...",
+      "eligibility_notes": null,
+      "clause_reference": "...",
+      "eligibility_rules": [
+        { "key": "tenure_months", "operator": "gte", "value": "6", "label": "6+ months tenure required" }
+      ]
+    }
+  ]
 }`;
 
-const DETAIL_PROMPT = `You are an expert at analyzing collective bargaining agreements. For each of the following benefits found in this agreement, extract detailed information.
-
-Benefits to detail:
-{BENEFIT_LIST}
-
-For EACH benefit listed above, provide:
-- name: Keep the same name from the list
-- description: One-sentence summary for a card display (max 150 chars)
-- category: Keep the same category from the list
-- clause_text: The EXACT text from the agreement that establishes this benefit. Quote it verbatim. Include the full relevant paragraph(s).
-- plain_english: A clear, accessible explanation of what this benefit means in practice. Write it so someone with no legal background can understand it. 2-4 sentences.
-- claim_process: How an employee should claim or use this benefit. If the agreement describes a specific process (forms, who to contact, notice period), include that. If the agreement doesn't specify, suggest a reasonable process based on the benefit type (e.g., "Contact your HR department to request this leave" or "Submit a claim form to your manager with receipts").
-- unit_type: One of: hours, days, weeks, dollars, count. Use "count" if the benefit is not quantifiable.
-- limit_amount: The numeric limit (e.g., 15 for "15 days"), or null if unlimited or not quantifiable.
-- period: One of: per_month, per_year, per_occurrence, unlimited. Use "unlimited" for non-quantifiable benefits.
-- eligibility_notes: Any conditions, waiting periods, or requirements. Null if none.
-- clause_reference: Keep the same clause_reference from the list
-
-Respond with ONLY valid JSON:
-{
-  "benefits": [{ "name": "...", "description": "...", "category": "...", "clause_text": "...", "plain_english": "...", "claim_process": "...", "unit_type": "...", "limit_amount": ..., "period": "...", "eligibility_notes": "...", "clause_reference": "..." }, ...]
-}`;
-
-// ── Constants ───────────────────────────────────────────────────────────────
+// ── Constants ────────────────────────────────────────────────────────────────
 
 const CATEGORIES = ['leave', 'health', 'financial', 'professional_development', 'workplace', 'pay', 'protection', 'process', 'other'] as const;
 
-// ── Helpers ─────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function extractJson(text: string): any {
   const trimmed = text.trim();
@@ -135,13 +138,10 @@ function extractJson(text: string): any {
   if (objStart !== -1) {
     jsonStr = jsonStr.slice(objStart);
 
-    // Try to repair truncated benefits array:
-    // Remove the last incomplete object/element (after the last complete },)
+    // Repair truncated benefits array: remove last incomplete item, close structure
     const lastCompleteItem = jsonStr.lastIndexOf('},');
     if (lastCompleteItem !== -1) {
-      // Close the array and object
       const repaired = jsonStr.slice(0, lastCompleteItem + 1) + ']';
-      // Count unclosed braces to close the outer object
       let openBraces = 0;
       for (const ch of repaired) {
         if (ch === '{') openBraces++;
@@ -150,7 +150,7 @@ function extractJson(text: string): any {
       const closed = repaired + '}'.repeat(Math.max(0, openBraces));
       try {
         const result = JSON.parse(closed);
-        console.warn(`[extraction] Repaired truncated JSON (response likely hit max_tokens)`);
+        console.warn('[extraction] Repaired truncated JSON (response likely hit max_tokens)');
         return result;
       } catch { /* continue */ }
     }
@@ -173,7 +173,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return btoa(binary);
 }
 
-// ── API caller ──────────────────────────────────────────────────────────────
+// ── API caller ───────────────────────────────────────────────────────────────
 
 async function callClaudeApi(
   apiKey: string,
@@ -252,79 +252,20 @@ async function callClaudeApi(
   return content;
 }
 
-// ── Pass 1: Scan ────────────────────────────────────────────────────────────
+// ── Main extraction ──────────────────────────────────────────────────────────
 
-async function scanBenefitsFromPdf(
+export async function extractBenefitsFromPdf(
   apiKey: string,
   pdfBytes: ArrayBuffer
-): Promise<ScanResult> {
-  const base64 = arrayBufferToBase64(pdfBytes);
-  console.log('[extraction] Pass 1: Scanning for benefits...');
+): Promise<ExtractionResult> {
+  const sizeMB = (pdfBytes.byteLength / (1024 * 1024)).toFixed(1);
+  console.log(`[extraction] Sending ${sizeMB}MB PDF to Claude for analysis...`);
 
-  const content = await callClaudeApi(apiKey, base64, SCAN_PROMPT, 8192);
+  const base64 = arrayBufferToBase64(pdfBytes);
+  const content = await callClaudeApi(apiKey, base64, EXTRACTION_PROMPT, 16384);
   const parsed = extractJson(content);
 
-  const benefits: ScannedBenefit[] = (parsed.benefits || []).map((b: any) => ({
-    name: String(b.name || ''),
-    category: validateEnum(b.category, CATEGORIES, 'other'),
-    clause_reference: typeof b.clause_reference === 'string' ? b.clause_reference : null,
-  }));
-
-  console.log(`[extraction] Pass 1: Found ${benefits.length} benefits`);
-
-  return {
-    benefits,
-    agreement_title_suggestion: parsed.agreement_title_suggestion
-      ? String(parsed.agreement_title_suggestion)
-      : null,
-    raw_summary: String(parsed.raw_summary || ''),
-  };
-}
-
-// ── Pass 2: Detail ──────────────────────────────────────────────────────────
-
-async function extractBenefitDetailsFromPdf(
-  apiKey: string,
-  pdfBytes: ArrayBuffer,
-  scannedBenefits: ScannedBenefit[]
-): Promise<ExtractedBenefit[]> {
-  const base64 = arrayBufferToBase64(pdfBytes);
-
-  // Split into batches of 15 if more than 30 benefits
-  if (scannedBenefits.length > 30) {
-    const batchSize = 15;
-    const batches: ScannedBenefit[][] = [];
-    for (let i = 0; i < scannedBenefits.length; i += batchSize) {
-      batches.push(scannedBenefits.slice(i, i + batchSize));
-    }
-
-    const allBenefits: ExtractedBenefit[] = [];
-    for (let i = 0; i < batches.length; i++) {
-      console.log(`[extraction] Pass 2: Extracting details (batch ${i + 1} of ${batches.length})...`);
-      const prompt = DETAIL_PROMPT.replace('{BENEFIT_LIST}', JSON.stringify(batches[i], null, 2));
-      const content = await callClaudeApi(apiKey, base64, prompt, 16384);
-      const parsed = extractJson(content);
-      const validated = validateBenefitDetails(parsed.benefits || []);
-      allBenefits.push(...validated);
-    }
-
-    console.log(`[extraction] Pass 2: Extracted ${allBenefits.length} benefits with details`);
-    return allBenefits;
-  }
-
-  // Single call for 30 or fewer benefits
-  console.log('[extraction] Pass 2: Extracting details...');
-  const prompt = DETAIL_PROMPT.replace('{BENEFIT_LIST}', JSON.stringify(scannedBenefits, null, 2));
-  const content = await callClaudeApi(apiKey, base64, prompt, 16384);
-  const parsed = extractJson(content);
-  const benefits = validateBenefitDetails(parsed.benefits || []);
-
-  console.log(`[extraction] Pass 2: Extracted ${benefits.length} benefits with details`);
-  return benefits;
-}
-
-function validateBenefitDetails(rawBenefits: any[]): ExtractedBenefit[] {
-  return rawBenefits.map((b: any) => ({
+  const benefits: ExtractedBenefit[] = (parsed.benefits || []).map((b: any) => ({
     name: String(b.name || '').slice(0, 200),
     description: String(b.description || '').slice(0, 1000),
     category: validateEnum(b.category, CATEGORIES, 'other'),
@@ -336,27 +277,25 @@ function validateBenefitDetails(rawBenefits: any[]): ExtractedBenefit[] {
     plain_english: b.plain_english ? String(b.plain_english).slice(0, 2000) : null,
     claim_process: b.claim_process ? String(b.claim_process).slice(0, 2000) : null,
     clause_reference: b.clause_reference ? String(b.clause_reference).slice(0, 100) : null,
+    eligibility_rules: Array.isArray(b.eligibility_rules)
+      ? b.eligibility_rules
+          .filter((r: any) => r.key && r.operator && r.value && r.label)
+          .map((r: any) => ({
+            key: String(r.key).slice(0, 100),
+            operator: String(r.operator).slice(0, 20),
+            value: String(r.value).slice(0, 200),
+            label: String(r.label).slice(0, 300),
+          }))
+      : null,
   }));
-}
 
-// ── Public entry point ──────────────────────────────────────────────────────
-
-export async function extractBenefitsFromPdf(
-  apiKey: string,
-  pdfBytes: ArrayBuffer
-): Promise<ExtractionResult> {
-  const sizeMB = (pdfBytes.byteLength / (1024 * 1024)).toFixed(1);
-  console.log(`[extraction] Sending ${sizeMB}MB PDF to Claude for analysis...`);
-
-  // Pass 1 — scan for all benefits
-  const scanResult = await scanBenefitsFromPdf(apiKey, pdfBytes);
-
-  // Pass 2 — extract details for each benefit
-  const benefits = await extractBenefitDetailsFromPdf(apiKey, pdfBytes, scanResult.benefits);
+  console.log(`[extraction] Extracted ${benefits.length} benefits`);
 
   return {
     benefits,
-    agreement_title_suggestion: scanResult.agreement_title_suggestion,
-    raw_summary: scanResult.raw_summary,
+    agreement_title_suggestion: parsed.agreement_title_suggestion
+      ? String(parsed.agreement_title_suggestion)
+      : null,
+    raw_summary: String(parsed.raw_summary || ''),
   };
 }
