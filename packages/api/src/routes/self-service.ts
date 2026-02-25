@@ -8,9 +8,9 @@ import { extractBenefitsFromPdf } from '../services/extraction';
 import { createBenefit } from '../services/benefit';
 import { addEligibilityRule, type Operator } from '../services/eligibility';
 
-const documents = new Hono<AppEnv>();
+const selfService = new Hono<AppEnv>();
 
-documents.use('*', requireAuth);
+selfService.use('*', requireAuth);
 
 /** Validate that the buffer starts with the PDF magic bytes (%PDF-) */
 function isPdfFile(buffer: ArrayBuffer): boolean {
@@ -48,41 +48,75 @@ const acceptBenefitsSchema = z.object({
   title: z.string().min(1).max(500).optional(),
 });
 
-// Upload PDF for an agreement
-documents.post('/upload/:agreementId', async (c) => {
-  const agreementId = c.req.param('agreementId');
+/**
+ * Get or create a personal union for the current user.
+ * Returns the union ID.
+ */
+async function getOrCreatePersonalUnion(db: D1Database, userId: string, userEmail: string): Promise<string> {
+  // Check if user already has a personal union
+  const existing = await db.prepare(
+    "SELECT id FROM unions WHERE created_by = ? AND type = 'personal'"
+  ).bind(userId).first<{ id: string }>();
 
-  const agreement = await findAgreementById(c.env.DB, agreementId);
-  if (!agreement) return c.json({ error: 'Agreement not found' }, 404);
+  if (existing) return existing.id;
 
-  // Check union admin access
+  // Create a personal union
+  const id = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+  await db.prepare(
+    "INSERT INTO unions (id, name, description, created_by, type) VALUES (?, ?, ?, ?, 'personal')"
+  ).bind(id, `Personal — ${userEmail}`, 'Personal agreement uploads', userId).run();
+
+  // Add user as admin of their personal union
+  const umId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+  await db.prepare(
+    "INSERT INTO union_memberships (id, user_id, union_id, role) VALUES (?, ?, ?, 'admin')"
+  ).bind(umId, userId, id).run();
+
+  return id;
+}
+
+/**
+ * Verify the user owns a personal agreement.
+ */
+async function verifyPersonalAgreement(db: D1Database, agreementId: string, userId: string) {
+  const agreement = await db.prepare(`
+    SELECT ca.* FROM collective_agreements ca
+    JOIN unions u ON ca.union_id = u.id
+    WHERE ca.id = ? AND u.type = 'personal' AND u.created_by = ?
+  `).bind(agreementId, userId).first();
+
+  return agreement;
+}
+
+// List user's personal agreements
+selfService.get('/agreements', async (c) => {
   const user = c.get('user')!;
-  const ag = agreement as any;
-  if (user.role !== 'platform_admin') {
-    const membership = await c.env.DB.prepare(
-      'SELECT role FROM union_memberships WHERE user_id = ? AND union_id = ?'
-    ).bind(user.id, ag.union_id).first<{ role: string }>();
-    if (!membership || membership.role !== 'admin') {
-      return c.json({ error: 'Not authorized' }, 403);
-    }
-  }
 
-  // Parse multipart form data
+  const result = await c.env.DB.prepare(`
+    SELECT ca.id, ca.title, ca.status, ca.document_url, ca.created_at, ca.updated_at,
+           COUNT(b.id) as benefit_count
+    FROM collective_agreements ca
+    JOIN unions u ON ca.union_id = u.id
+    LEFT JOIN benefits b ON ca.id = b.agreement_id
+    WHERE u.type = 'personal' AND u.created_by = ?
+    GROUP BY ca.id
+    ORDER BY ca.created_at DESC
+  `).bind(user.id).all();
+
+  return c.json({ data: result.results });
+});
+
+// Create a new personal agreement + upload PDF
+selfService.post('/upload', async (c) => {
+  const user = c.get('user')!;
+
   const formData = await c.req.formData();
   const file = formData.get('file') as File | null;
+  const title = (formData.get('title') as string) || 'My Agreement';
 
-  if (!file) {
-    return c.json({ error: 'No file uploaded' }, 400);
-  }
-
-  if (file.type !== 'application/pdf') {
-    return c.json({ error: 'Only PDF files are accepted' }, 400);
-  }
-
-  // Max 10MB
-  if (file.size > 10 * 1024 * 1024) {
-    return c.json({ error: 'File must be under 10MB' }, 400);
-  }
+  if (!file) return c.json({ error: 'No file uploaded' }, 400);
+  if (file.type !== 'application/pdf') return c.json({ error: 'Only PDF files are accepted' }, 400);
+  if (file.size > 25 * 1024 * 1024) return c.json({ error: 'File must be under 25MB' }, 400);
 
   const fileBuffer = await file.arrayBuffer();
 
@@ -91,14 +125,21 @@ documents.post('/upload/:agreementId', async (c) => {
     return c.json({ error: 'File does not appear to be a valid PDF' }, 400);
   }
 
-  // Upload to R2 with sanitized filename
+  // Get or create personal union
+  const unionId = await getOrCreatePersonalUnion(c.env.DB, user.id, user.email);
+
+  // Create agreement
+  const agreementId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+  await c.env.DB.prepare(
+    "INSERT INTO collective_agreements (id, union_id, title, status, uploaded_by) VALUES (?, ?, ?, 'draft', ?)"
+  ).bind(agreementId, unionId, title, user.id).run();
+
+  // Upload PDF to R2 with sanitized filename
   const safeName = sanitizeFilename(file.name);
-  const key = `agreements/${agreementId}/${Date.now()}-${safeName}`;
+  const key = `personal/${user.id}/${agreementId}/${Date.now()}-${safeName}`;
 
   await c.env.DOCUMENTS.put(key, fileBuffer, {
-    httpMetadata: {
-      contentType: 'application/pdf',
-    },
+    httpMetadata: { contentType: 'application/pdf' },
     customMetadata: {
       agreementId,
       originalName: safeName,
@@ -107,12 +148,17 @@ documents.post('/upload/:agreementId', async (c) => {
   });
 
   // Update agreement with document URL
-  await updateAgreement(c.env.DB, agreementId, {
-    document_url: key,
-  });
+  await updateAgreement(c.env.DB, agreementId, { document_url: key });
+
+  // Auto-join member to their own agreement
+  const maId = crypto.randomUUID().replace(/-/g, '').slice(0, 32);
+  await c.env.DB.prepare(
+    'INSERT INTO member_agreements (id, user_id, agreement_id) VALUES (?, ?, ?)'
+  ).bind(maId, user.id, agreementId).run();
 
   return c.json({
     data: {
+      agreementId,
       key,
       filename: safeName,
       size: file.size,
@@ -120,41 +166,26 @@ documents.post('/upload/:agreementId', async (c) => {
   }, 201);
 });
 
-// Extract benefits from uploaded PDF using AI
-documents.post('/extract/:agreementId', async (c) => {
+// Extract benefits from a personal agreement PDF
+selfService.post('/extract/:agreementId', async (c) => {
+  const user = c.get('user')!;
   const agreementId = c.req.param('agreementId');
 
-  const agreement = await findAgreementById(c.env.DB, agreementId);
+  const agreement = await verifyPersonalAgreement(c.env.DB, agreementId, user.id);
   if (!agreement) return c.json({ error: 'Agreement not found' }, 404);
 
   const ag = agreement as any;
-
-  // Check union admin access
-  const user = c.get('user')!;
-  if (user.role !== 'platform_admin') {
-    const membership = await c.env.DB.prepare(
-      'SELECT role FROM union_memberships WHERE user_id = ? AND union_id = ?'
-    ).bind(user.id, ag.union_id).first<{ role: string }>();
-    if (!membership || membership.role !== 'admin') {
-      return c.json({ error: 'Not authorized' }, 403);
-    }
-  }
-
   if (!ag.document_url) {
     return c.json({ error: 'No document uploaded for this agreement' }, 400);
   }
 
-  // Get PDF from R2
   const object = await c.env.DOCUMENTS.get(ag.document_url);
-  if (!object) {
-    return c.json({ error: 'Document not found in storage' }, 404);
-  }
+  if (!object) return c.json({ error: 'Document not found in storage' }, 404);
 
   const pdfBytes = await object.arrayBuffer();
 
-  // Extract benefits using AI — sends PDF directly to Claude
   if (!c.env.CLAUDE_API_KEY) {
-    return c.json({ error: 'AI extraction not configured (missing CLAUDE_API_KEY)' }, 500);
+    return c.json({ error: 'AI extraction not configured' }, 500);
   }
 
   try {
@@ -166,27 +197,15 @@ documents.post('/extract/:agreementId', async (c) => {
   }
 });
 
-// Accept extracted benefits (human review -> commit to DB)
-documents.post('/accept/:agreementId',
+// Accept extracted benefits for a personal agreement
+selfService.post('/accept/:agreementId',
   zValidator('json', acceptBenefitsSchema),
   async (c) => {
+    const user = c.get('user')!;
     const agreementId = c.req.param('agreementId');
 
-    const agreement = await findAgreementById(c.env.DB, agreementId);
+    const agreement = await verifyPersonalAgreement(c.env.DB, agreementId, user.id);
     if (!agreement) return c.json({ error: 'Agreement not found' }, 404);
-
-    const ag = agreement as any;
-
-    // Check union admin access
-    const user = c.get('user')!;
-    if (user.role !== 'platform_admin') {
-      const membership = await c.env.DB.prepare(
-        'SELECT role FROM union_memberships WHERE user_id = ? AND union_id = ?'
-      ).bind(user.id, ag.union_id).first<{ role: string }>();
-      if (!membership || membership.role !== 'admin') {
-        return c.json({ error: 'Not authorized' }, 403);
-      }
-    }
 
     const { benefits, title } = c.req.valid('json');
 
@@ -194,6 +213,9 @@ documents.post('/accept/:agreementId',
     if (title) {
       await updateAgreement(c.env.DB, agreementId, { title });
     }
+
+    // Delete existing benefits (allow re-extraction)
+    await c.env.DB.prepare('DELETE FROM benefits WHERE agreement_id = ?').bind(agreementId).run();
 
     // Create each benefit
     const created = [];
@@ -230,45 +252,36 @@ documents.post('/accept/:agreementId',
       }
     }
 
-    return c.json({ data: { count: created.length, benefits: created } }, 201);
+    // Mark as published so benefits show on dashboard
+    await updateAgreement(c.env.DB, agreementId, { status: 'published' });
+
+    return c.json({ data: { count: created.length } }, 201);
   }
 );
 
-// Remove uploaded PDF from an agreement
-documents.delete('/remove/:agreementId', async (c) => {
+// Delete a personal agreement
+selfService.delete('/:agreementId', async (c) => {
+  const user = c.get('user')!;
   const agreementId = c.req.param('agreementId');
 
-  const agreement = await findAgreementById(c.env.DB, agreementId);
+  const agreement = await verifyPersonalAgreement(c.env.DB, agreementId, user.id);
   if (!agreement) return c.json({ error: 'Agreement not found' }, 404);
 
   const ag = agreement as any;
 
-  // Check admin access
-  const user = c.get('user')!;
-  if (user.role !== 'platform_admin') {
-    const membership = await c.env.DB.prepare(
-      'SELECT role FROM union_memberships WHERE user_id = ? AND union_id = ?'
-    ).bind(user.id, ag.union_id).first<{ role: string }>();
-    if (!membership || membership.role !== 'admin') {
-      return c.json({ error: 'Not authorized' }, 403);
+  // Delete PDF from R2 if exists
+  if (ag.document_url) {
+    try {
+      await c.env.DOCUMENTS.delete(ag.document_url);
+    } catch (err) {
+      console.error('Failed to delete from R2:', err);
     }
   }
 
-  if (!ag.document_url) {
-    return c.json({ error: 'No document to remove' }, 400);
-  }
-
-  // Delete from R2
-  try {
-    await c.env.DOCUMENTS.delete(ag.document_url);
-  } catch (err) {
-    console.error('Failed to delete from R2:', err);
-  }
-
-  // Clear the document_url on the agreement
-  await updateAgreement(c.env.DB, agreementId, { document_url: '' });
+  // Delete agreement (cascades to benefits, member_agreements via FK)
+  await c.env.DB.prepare('DELETE FROM collective_agreements WHERE id = ?').bind(agreementId).run();
 
   return c.json({ success: true });
 });
 
-export default documents;
+export default selfService;
