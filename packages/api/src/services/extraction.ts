@@ -282,7 +282,7 @@ export async function extractBenefitsFromPdf(
           .filter((r: any) => r.key && r.operator && r.value && r.label)
           .map((r: any) => ({
             key: String(r.key).slice(0, 100),
-            operator: String(r.operator).slice(0, 20),
+            operator: validateEnum(r.operator, ['gte', 'lte', 'eq', 'neq', 'contains'] as const, 'eq'),
             value: String(r.value).slice(0, 200),
             label: String(r.label).slice(0, 300),
           }))
