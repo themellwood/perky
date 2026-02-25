@@ -20,17 +20,17 @@ profile.get('/attributes', async (c) => {
 // Upsert user attributes
 profile.put('/attributes',
   zValidator('json', z.object({
-    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !isNaN(new Date(d).getTime()), { message: 'Invalid date' }).optional(),
     employment_type: z.enum(['full_time', 'part_time', 'casual', 'permanent', 'fixed_term']).optional(),
     job_title: z.string().max(200).optional(),
-  }).passthrough()), // passthrough allows unknown keys for future extensibility
+  })),
   async (c) => {
     const user = c.get('user')!;
     const body = c.req.valid('json');
-    // Filter out undefined values
+    // Filter out undefined, null, and empty string values
     const attrs: Record<string, string> = {};
     for (const [k, v] of Object.entries(body)) {
-      if (v !== undefined && v !== null) attrs[k] = String(v);
+      if (v !== undefined && v !== null && v !== '') attrs[k] = String(v);
     }
     await upsertUserAttributes(c.env.DB, user.id, attrs);
     const updated = await getUserAttributes(c.env.DB, user.id);
