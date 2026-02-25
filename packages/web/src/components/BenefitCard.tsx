@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useBenefitRules, useAddBenefitRule, useDeleteBenefitRule } from '../hooks/useBenefitRules';
+import type { EligibilityRule } from '../hooks/useBenefitRules';
 
 const CATEGORIES = [
   { value: 'leave', label: 'Leave' },
@@ -53,6 +55,15 @@ interface Props {
 export function BenefitCard({ benefit, mode, onSave, onDelete, onCancel }: Props) {
   const [editing, setEditing] = useState(mode === 'create');
   const [saving, setSaving] = useState(false);
+
+  const { data: rules = [] } = useBenefitRules(benefit?.id ?? null);
+  const addRule = useAddBenefitRule(benefit?.id ?? '');
+  const deleteRule = useDeleteBenefitRule(benefit?.id ?? '');
+
+  const [newRuleKey, setNewRuleKey] = useState('tenure_months');
+  const [newRuleOp, setNewRuleOp] = useState('gte');
+  const [newRuleValue, setNewRuleValue] = useState('');
+  const [newRuleLabel, setNewRuleLabel] = useState('');
   const [form, setForm] = useState<BenefitData>({
     name: benefit?.name || '',
     description: benefit?.description || '',
@@ -174,6 +185,136 @@ export function BenefitCard({ benefit, mode, onSave, onDelete, onCancel }: Props
             rows={2} placeholder="Steps to claim this benefit" className="input-brutal w-full text-sm" />
         </div>
       </div>
+
+      {/* ── Eligibility Rules ────────────────────────────────── */}
+      {mode === 'edit' && (
+        <div className="border-t border-ink/10 pt-4 mt-4">
+          <h4 className="text-sm font-semibold text-ink mb-3">Eligibility Rules</h4>
+
+          {/* Existing rules */}
+          {rules.length > 0 ? (
+            <ul className="space-y-2 mb-3">
+              {rules.map((rule) => (
+                <li key={rule.id} className="flex items-center justify-between gap-2 text-sm bg-gray-50 border border-gray-200 rounded px-3 py-1.5">
+                  <span className="text-gray-700">{rule.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => deleteRule.mutate(rule.id)}
+                    className="text-red-500 hover:text-red-700 font-bold text-xs"
+                    title="Remove rule"
+                  >
+                    ×
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-xs text-gray-400 mb-3">No eligibility rules — benefit applies to all members.</p>
+          )}
+
+          {/* Add rule form */}
+          <details className="text-sm">
+            <summary className="cursor-pointer text-perky-600 font-medium hover:underline">+ Add rule</summary>
+            <div className="mt-3 space-y-2 p-3 bg-gray-50 border border-gray-200 rounded">
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Attribute</label>
+                  <select
+                    value={newRuleKey}
+                    onChange={(e) => {
+                      setNewRuleKey(e.target.value);
+                      setNewRuleOp(e.target.value === 'tenure_months' ? 'gte' : 'eq');
+                      setNewRuleValue('');
+                    }}
+                    className="input-brutal w-full text-xs py-1"
+                  >
+                    <option value="tenure_months">Tenure (months)</option>
+                    <option value="employment_type">Employment type</option>
+                    <option value="job_title">Job title</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Condition</label>
+                  <select
+                    value={newRuleOp}
+                    onChange={(e) => setNewRuleOp(e.target.value)}
+                    className="input-brutal w-full text-xs py-1"
+                  >
+                    {newRuleKey === 'tenure_months' && <>
+                      <option value="gte">at least</option>
+                      <option value="lte">at most</option>
+                    </>}
+                    {newRuleKey === 'employment_type' && <>
+                      <option value="eq">is exactly</option>
+                      <option value="neq">is not</option>
+                    </>}
+                    {newRuleKey === 'job_title' && <>
+                      <option value="contains">contains</option>
+                      <option value="eq">is exactly</option>
+                    </>}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Value</label>
+                  {newRuleKey === 'employment_type' ? (
+                    <select
+                      value={newRuleValue}
+                      onChange={(e) => setNewRuleValue(e.target.value)}
+                      className="input-brutal w-full text-xs py-1"
+                    >
+                      <option value="">— Select —</option>
+                      <option value="full_time">Full-time</option>
+                      <option value="part_time">Part-time</option>
+                      <option value="casual">Casual</option>
+                      <option value="permanent">Permanent</option>
+                      <option value="fixed_term">Fixed-term</option>
+                    </select>
+                  ) : (
+                    <input
+                      type={newRuleKey === 'tenure_months' ? 'number' : 'text'}
+                      value={newRuleValue}
+                      onChange={(e) => setNewRuleValue(e.target.value)}
+                      placeholder={newRuleKey === 'tenure_months' ? 'e.g. 6' : 'e.g. Manager'}
+                      className="input-brutal w-full text-xs py-1"
+                      min={newRuleKey === 'tenure_months' ? 0 : undefined}
+                    />
+                  )}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Label (shown to user)</label>
+                <input
+                  type="text"
+                  value={newRuleLabel}
+                  onChange={(e) => setNewRuleLabel(e.target.value)}
+                  placeholder="e.g. 6+ months tenure required"
+                  className="input-brutal w-full text-xs py-1"
+                  maxLength={300}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={!newRuleValue || !newRuleLabel || addRule.isPending}
+                onClick={async () => {
+                  if (!newRuleValue || !newRuleLabel) return;
+                  await addRule.mutateAsync({
+                    key: newRuleKey,
+                    operator: newRuleOp as EligibilityRule['operator'],
+                    value: newRuleValue,
+                    label: newRuleLabel,
+                  });
+                  setNewRuleValue('');
+                  setNewRuleLabel('');
+                }}
+                className="btn-primary text-xs py-1 px-3"
+              >
+                {addRule.isPending ? 'Adding…' : 'Add rule'}
+              </button>
+            </div>
+          </details>
+        </div>
+      )}
+
       <div className="flex gap-2 justify-end">
         {(onCancel || mode === 'edit') && (
           <button type="button" onClick={() => { onCancel?.(); if (mode === 'edit') setEditing(false); }}
