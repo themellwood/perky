@@ -41,7 +41,10 @@ function formatUnit(amount: number, unitType: string): string {
 }
 
 interface Props {
-  summary: UsageSummary;
+  summary: UsageSummary & {
+    eligible?: true | false | 'unknown';
+    unmet_rules?: string[];
+  };
 }
 
 export function BenefitDashboardCard({ summary }: Props) {
@@ -59,6 +62,8 @@ export function BenefitDashboardCard({ summary }: Props) {
     eligibility_notes,
     total_used,
     remaining,
+    eligible,
+    unmet_rules,
   } = summary;
 
   const hasLimit = limit_amount !== null;
@@ -87,6 +92,26 @@ export function BenefitDashboardCard({ summary }: Props) {
 
         {benefit_description && (
           <p className="text-sm text-gray-600 mb-3">{benefit_description}</p>
+        )}
+
+        {/* Eligibility badge */}
+        {eligible === false && unmet_rules && unmet_rules.length > 0 && (
+          <div
+            className="inline-flex items-center gap-1.5 text-xs font-medium bg-amber-100 text-amber-800 border border-amber-300 rounded px-2 py-1 mb-2"
+            title={unmet_rules.join(' · ')}
+          >
+            <span>⚠️</span>
+            <span>May not apply to you</span>
+          </div>
+        )}
+        {eligible === 'unknown' && unmet_rules && unmet_rules.length > 0 && (
+          <Link
+            to="/profile"
+            className="inline-flex items-center gap-1.5 text-xs font-medium bg-gray-100 text-gray-600 border border-gray-300 rounded px-2 py-1 mb-2 hover:bg-gray-200"
+          >
+            <span>❓</span>
+            <span>Complete profile to check eligibility</span>
+          </Link>
         )}
 
         {/* Usage display */}
