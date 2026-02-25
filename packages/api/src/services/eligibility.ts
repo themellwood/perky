@@ -66,14 +66,18 @@ export async function getRulesForBenefit(db: D1Database, benefitId: string): Pro
 
 export async function getRulesForBenefits(db: D1Database, benefitIds: string[]): Promise<Map<string, EligibilityRule[]>> {
   if (benefitIds.length === 0) return new Map();
-  const placeholders = benefitIds.map(() => '?').join(',');
-  const result = await db.prepare(
-    `SELECT * FROM benefit_eligibility_rules WHERE benefit_id IN (${placeholders}) ORDER BY updated_at ASC`
-  ).bind(...benefitIds).all<EligibilityRule>();
+  const CHUNK_SIZE = 50;
   const map = new Map<string, EligibilityRule[]>();
-  for (const row of result.results) {
-    if (!map.has(row.benefit_id)) map.set(row.benefit_id, []);
-    map.get(row.benefit_id)!.push(row);
+  for (let i = 0; i < benefitIds.length; i += CHUNK_SIZE) {
+    const chunk = benefitIds.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const result = await db.prepare(
+      `SELECT * FROM benefit_eligibility_rules WHERE benefit_id IN (${placeholders}) ORDER BY updated_at ASC`
+    ).bind(...chunk).all<EligibilityRule>();
+    for (const row of result.results) {
+      if (!map.has(row.benefit_id)) map.set(row.benefit_id, []);
+      map.get(row.benefit_id)!.push(row);
+    }
   }
   return map;
 }
@@ -88,9 +92,11 @@ export async function addEligibilityRule(
     INSERT INTO benefit_eligibility_rules (id, benefit_id, key, operator, value, label)
     VALUES (?, ?, ?, ?, ?, ?)
   `).bind(id, benefitId, rule.key, rule.operator, rule.value, rule.label).run();
-  return db.prepare(
+  const inserted = await db.prepare(
     'SELECT * FROM benefit_eligibility_rules WHERE id = ?'
-  ).bind(id).first<EligibilityRule>() as Promise<EligibilityRule>;
+  ).bind(id).first<EligibilityRule>();
+  if (!inserted) throw new Error(`Failed to retrieve eligibility rule after insert (id=${id})`);
+  return inserted;
 }
 
 export async function deleteEligibilityRule(db: D1Database, ruleId: string): Promise<void> {
@@ -100,10 +106,14 @@ export async function deleteEligibilityRule(db: D1Database, ruleId: string): Pro
 // ── Evaluation ───────────────────────────────────────────────────────────────
 
 /** Compute tenure in complete months from a YYYY-MM-DD start date to today. */
-function tenureMonths(startDate: string): number {
+function tenureMonths(startDate: string): number | null {
   const start = new Date(startDate);
+  if (isNaN(start.getTime())) return null;
   const now = new Date();
-  return (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+  let months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+  if (now.getDate() < start.getDate()) months -= 1;
+  if (months < 0) return null;
+  return months;
 }
 
 /** Evaluate a single rule against the user's attributes. Returns true/false/'unknown'. */
@@ -112,6 +122,7 @@ function evaluateRule(rule: EligibilityRule, attrs: Record<string, string>): tru
   if (rule.key === 'tenure_months') {
     if (!attrs['start_date']) return 'unknown';
     const actual = tenureMonths(attrs['start_date']);
+    if (actual === null) return 'unknown';
     const required = parseFloat(rule.value);
     if (isNaN(required)) return 'unknown';
     if (rule.operator === 'gte') return actual >= required;
