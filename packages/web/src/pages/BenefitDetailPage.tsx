@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { useBenefit } from '../hooks/useBenefits';
 import { useUsageSummary } from '../hooks/useUsage';
+import { useBenefitRules } from '../hooks/useBenefitRules';
 import { LogUsageModal } from '../components/LogUsageModal';
 import { UsageHistory } from '../components/UsageHistory';
 
@@ -21,10 +22,12 @@ export function BenefitDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: benefit, isLoading: loadingBenefit } = useBenefit(id!);
   const { data: summaries } = useUsageSummary();
+  const { data: rules } = useBenefitRules(id ?? null);
   const [showLogModal, setShowLogModal] = useState(false);
 
   // Find usage data for this benefit from the summary
   const usage = summaries?.find(s => s.benefit_id === id);
+  const summaryEntry = summaries?.find((s) => s.benefit_id === id);
   const totalUsed = usage?.total_used ?? 0;
   const remaining = usage?.remaining ?? null;
   const limitAmount = benefit?.limit_amount ?? null;
@@ -176,6 +179,36 @@ export function BenefitDetailPage() {
           </div>
           <p className="text-gray-700 leading-relaxed">{benefit.claim_process}</p>
         </div>
+      )}
+
+      {/* Eligibility section — only show if there are rules */}
+      {rules && rules.length > 0 && (
+        <section className="card-brutal p-5">
+          <h2 className="font-bold text-ink mb-3">Eligibility</h2>
+          <ul className="space-y-2">
+            {rules.map((rule) => {
+              const unmet = summaryEntry?.unmet_rules?.includes(rule.label);
+              const unknown = summaryEntry?.eligible === 'unknown' && unmet;
+              const fail = summaryEntry?.eligible === false && unmet;
+              return (
+                <li key={rule.id} className="flex items-start gap-2 text-sm">
+                  <span className="mt-0.5 text-base leading-none">
+                    {fail ? '❌' : unknown ? '❓' : '✅'}
+                  </span>
+                  <span className={fail ? 'text-red-700' : unknown ? 'text-gray-500' : 'text-gray-700'}>
+                    {rule.label}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+          {summaryEntry?.eligible !== true && (
+            <p className="mt-3 text-xs text-gray-500">
+              <Link to="/profile" className="underline font-medium">Update your profile →</Link>
+              {' '}to check your eligibility accurately.
+            </p>
+          )}
+        </section>
       )}
 
       {/* Modal */}
