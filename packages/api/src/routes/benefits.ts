@@ -212,7 +212,7 @@ benefits.delete('/:id/eligibility-rules/:ruleId', async (c) => {
   const user = c.get('user')!;
   const benefit = await userCanWriteBenefit(c.env.DB, c.req.param('id'), user);
   if (!benefit) return c.json({ error: 'Benefit not found' }, 404);
-  await deleteEligibilityRule(c.env.DB, c.req.param('ruleId'));
+  await deleteEligibilityRule(c.env.DB, c.req.param('ruleId'), c.req.param('id'));
   return c.json({ success: true });
 });
 

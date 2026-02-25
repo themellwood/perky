@@ -99,8 +99,8 @@ export async function addEligibilityRule(
   return inserted;
 }
 
-export async function deleteEligibilityRule(db: D1Database, ruleId: string): Promise<void> {
-  await db.prepare('DELETE FROM benefit_eligibility_rules WHERE id = ?').bind(ruleId).run();
+export async function deleteEligibilityRule(db: D1Database, ruleId: string, benefitId: string): Promise<void> {
+  await db.prepare('DELETE FROM benefit_eligibility_rules WHERE id = ? AND benefit_id = ?').bind(ruleId, benefitId).run();
 }
 
 // ── Evaluation ───────────────────────────────────────────────────────────────

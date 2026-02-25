@@ -40,7 +40,7 @@ const acceptBenefitsSchema = z.object({
     clause_reference: z.string().max(100).nullable().optional(),
     eligibility_rules: z.array(z.object({
       key: z.string().min(1).max(100),
-      operator: z.string().min(1).max(20),
+      operator: z.enum(['gte', 'lte', 'eq', 'neq', 'contains']),
       value: z.string().min(1).max(200),
       label: z.string().min(1).max(300),
     })).optional(),
@@ -238,16 +238,13 @@ selfService.post('/accept/:agreementId',
 
       // Save extracted eligibility rules if any
       if (b.eligibility_rules?.length && benefit) {
-        const validOps = ['gte', 'lte', 'eq', 'neq', 'contains'];
         for (const rule of b.eligibility_rules) {
-          if (validOps.includes(rule.operator)) {
-            await addEligibilityRule(c.env.DB, (benefit as any).id, {
-              key: rule.key,
-              operator: rule.operator as Operator,
-              value: rule.value,
-              label: rule.label,
-            });
-          }
+          await addEligibilityRule(c.env.DB, (benefit as any).id, {
+            key: rule.key,
+            operator: rule.operator as Operator,
+            value: rule.value,
+            label: rule.label,
+          });
         }
       }
     }
