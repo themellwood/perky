@@ -56,7 +56,7 @@ export function BenefitCard({ benefit, mode, onSave, onDelete, onCancel }: Props
   const [editing, setEditing] = useState(mode === 'create');
   const [saving, setSaving] = useState(false);
 
-  const { data: rules = [] } = useBenefitRules(benefit?.id ?? null);
+  const { data: rules = [] } = useBenefitRules(mode === 'edit' ? (benefit?.id ?? null) : null);
   const addRule = useAddBenefitRule(benefit?.id ?? '');
   const deleteRule = useDeleteBenefitRule(benefit?.id ?? '');
 
