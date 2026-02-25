@@ -18,6 +18,8 @@ export interface UsageSummary {
   plain_english: string | null;
   claim_process: string | null;
   clause_reference: string | null;
+  eligible: true | false | 'unknown';
+  unmet_rules: string[];
 }
 
 export interface UsageLog {
