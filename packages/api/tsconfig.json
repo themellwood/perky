@@ -5,6 +5,7 @@
     "rootDir": "src",
     "types": ["@cloudflare/workers-types"],
     "jsx": "react-jsx",
+    "composite": true,   
     "jsxImportSource": "hono/jsx"
   },
   "include": ["src"]
