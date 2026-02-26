@@ -105,10 +105,30 @@ member.delete('/agreements/:agreementId', async (c) => {
       return c.json({ error: 'Agreement not found' }, 404); // 404 not 403 — avoids confirming whether ID exists
     }
 
-    // Remove the membership
+    // Remove the member_agreement
     await c.env.DB.prepare(
       'DELETE FROM member_agreements WHERE user_id = ? AND agreement_id = ?'
     ).bind(user.id, agreementId).run();
+
+    // Clean up union_membership if user has no remaining agreements from this union
+    const agreementRow = await c.env.DB.prepare(
+      'SELECT union_id FROM collective_agreements WHERE id = ?'
+    ).bind(agreementId).first<{ union_id: string }>();
+
+    if (agreementRow) {
+      const remaining = await c.env.DB.prepare(`
+        SELECT COUNT(*) as count
+        FROM member_agreements ma
+        JOIN collective_agreements ca ON ma.agreement_id = ca.id
+        WHERE ma.user_id = ? AND ca.union_id = ?
+      `).bind(user.id, agreementRow.union_id).first<{ count: number }>();
+
+      if (!remaining || remaining.count === 0) {
+        await c.env.DB.prepare(
+          'DELETE FROM union_memberships WHERE user_id = ? AND union_id = ?'
+        ).bind(user.id, agreementRow.union_id).run();
+      }
+    }
 
     return c.json({ success: true });
   } catch (err) {
