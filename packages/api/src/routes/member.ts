@@ -67,22 +67,27 @@ member.post('/join',
 member.get('/agreements', async (c) => {
   const user = c.get('user')!;
 
-  const result = await c.env.DB.prepare(`
-    SELECT ca.id, ca.union_id, ca.title, ca.status, ca.access_code,
-           ca.document_url, ca.created_at, ca.updated_at,
-           u.name as union_name, ma.joined_at,
-           COUNT(b.id) as benefit_count
-    FROM member_agreements ma
-    JOIN collective_agreements ca ON ma.agreement_id = ca.id
-    JOIN unions u ON ca.union_id = u.id
-    LEFT JOIN benefits b ON ca.id = b.agreement_id
-    WHERE ma.user_id = ?
-    GROUP BY ca.id, ca.union_id, ca.title, ca.status, ca.access_code,
-             ca.document_url, ca.created_at, ca.updated_at, u.name, ma.joined_at
-    ORDER BY ma.joined_at DESC
-  `).bind(user.id).all();
+  try {
+    const result = await c.env.DB.prepare(`
+      SELECT ca.id, ca.union_id, ca.title, ca.status, ca.access_code,
+             ca.document_url, ca.created_at, ca.updated_at,
+             u.name as union_name, ma.joined_at,
+             COUNT(b.id) as benefit_count
+      FROM member_agreements ma
+      JOIN collective_agreements ca ON ma.agreement_id = ca.id
+      JOIN unions u ON ca.union_id = u.id
+      LEFT JOIN benefits b ON ca.id = b.agreement_id
+      WHERE ma.user_id = ?
+      GROUP BY ca.id, ca.union_id, ca.title, ca.status, ca.access_code,
+               ca.document_url, ca.created_at, ca.updated_at, u.name, ma.joined_at
+      ORDER BY ma.joined_at DESC
+    `).bind(user.id).all();
 
-  return c.json({ data: result.results });
+    return c.json({ data: result.results });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to fetch agreements';
+    return c.json({ error: message }, 500);
+  }
 });
 
 // Leave (unjoin) an agreement
@@ -90,21 +95,26 @@ member.delete('/agreements/:agreementId', async (c) => {
   const user = c.get('user')!;
   const { agreementId } = c.req.param();
 
-  // Verify the user has actually joined this agreement
-  const existing = await c.env.DB.prepare(
-    'SELECT id FROM member_agreements WHERE user_id = ? AND agreement_id = ?'
-  ).bind(user.id, agreementId).first();
+  try {
+    // Verify the user has actually joined this agreement
+    const existing = await c.env.DB.prepare(
+      'SELECT id FROM member_agreements WHERE user_id = ? AND agreement_id = ?'
+    ).bind(user.id, agreementId).first();
 
-  if (!existing) {
-    return c.json({ error: 'Agreement not found' }, 404);
+    if (!existing) {
+      return c.json({ error: 'Agreement not found' }, 404); // 404 not 403 — avoids confirming whether ID exists
+    }
+
+    // Remove the membership
+    await c.env.DB.prepare(
+      'DELETE FROM member_agreements WHERE user_id = ? AND agreement_id = ?'
+    ).bind(user.id, agreementId).run();
+
+    return c.json({ success: true });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to delete agreement';
+    return c.json({ error: message }, 500);
   }
-
-  // Remove the membership
-  await c.env.DB.prepare(
-    'DELETE FROM member_agreements WHERE user_id = ? AND agreement_id = ?'
-  ).bind(user.id, agreementId).run();
-
-  return c.json({ success: true });
 });
 
 export default member;
