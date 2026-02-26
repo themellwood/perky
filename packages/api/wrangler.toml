@@ -18,4 +18,4 @@ id = "5b7fa5f04eab4ee987d8f43454bbdf50"
 
 [[r2_buckets]]
 binding = "DOCUMENTS"
-bucket_name = "perky_documents"
+bucket_name = "perky-documents"
