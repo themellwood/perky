@@ -26,7 +26,7 @@ export function useJoinAgreement() {
       api.post<{ data: MemberAgreementView }>('/member/join', { access_code: accessCode }).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['member', 'agreements'] });
-      qc.invalidateQueries({ queryKey: ['usage', 'summary'] });
+      qc.invalidateQueries({ queryKey: ['usage'] });
     },
   });
 }
