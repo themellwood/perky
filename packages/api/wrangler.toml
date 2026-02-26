@@ -9,13 +9,13 @@ APP_URL = "http://localhost:5173"
 [[d1_databases]]
 binding = "DB"
 database_name = "perky-db"
-database_id = "local"
+database_id = "10cd815e-8f05-4be3-8360-fe968d0920e6"
 migrations_dir = "../../migrations"
 
 [[kv_namespaces]]
 binding = "AUTH_KV"
-id = "local"
+id = "5b7fa5f04eab4ee987d8f43454bbdf50"
 
 [[r2_buckets]]
 binding = "DOCUMENTS"
-bucket_name = "perky-documents"
+bucket_name = "perky_documents"
