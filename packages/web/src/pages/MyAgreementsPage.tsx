@@ -11,6 +11,7 @@ import {
 import {
   useMemberAgreements,
   useLeaveAgreement,
+  type MemberAgreementView,
 } from '../hooks/useMember';
 import type { ExtractedBenefit } from '../hooks/useDocuments';
 
@@ -51,8 +52,6 @@ export function MyAgreementsPage() {
   const { data: unionAgreements, isLoading: unionLoading } = useMemberAgreements();
   const [showUpload, setShowUpload] = useState(false);
 
-  const isLoading = personalLoading || unionLoading;
-
   return (
     <Layout>
       <div className="mb-8">
@@ -62,110 +61,102 @@ export function MyAgreementsPage() {
         </p>
       </div>
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-2 border-perky-600 border-t-transparent" />
-        </div>
-      ) : (
-        <div className="space-y-10">
-          {/* ── Union Agreements Section ── */}
-          <section>
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Union Agreements</h2>
-                <p className="text-sm text-gray-500">Agreements you've joined using an access code</p>
-              </div>
+      <div className="space-y-10">
+        {/* ── Union Agreements Section ── */}
+        <section>
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Union Agreements</h2>
+              <p className="text-sm text-gray-500">Agreements you've joined using an access code</p>
+            </div>
+            <Link to="/join" className="btn-primary btn-sm">
+              + Join Agreement
+            </Link>
+          </div>
+
+          {unionLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-perky-600 border-t-transparent" />
+            </div>
+          ) : !unionAgreements || unionAgreements.length === 0 ? (
+            <div className="card-brutal p-8 text-center">
+              <div className="text-3xl mb-3">🤝</div>
+              <h3 className="font-semibold text-gray-900 mb-1">No union agreements joined</h3>
+              <p className="text-gray-500 text-sm mb-4">
+                Join your union's agreement using the access code provided by your union rep.
+              </p>
               <Link to="/join" className="btn-primary btn-sm">
-                + Join Agreement
+                Join an Agreement
               </Link>
             </div>
-
-            {!unionAgreements || unionAgreements.length === 0 ? (
-              <div className="card-brutal p-8 text-center">
-                <div className="text-3xl mb-3">🤝</div>
-                <h3 className="font-semibold text-gray-900 mb-1">No union agreements joined</h3>
-                <p className="text-gray-500 text-sm mb-4">
-                  Join your union's agreement using the access code provided by your union rep.
-                </p>
-                <Link to="/join" className="btn-primary btn-sm">
-                  Join an Agreement
-                </Link>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {unionAgreements.map((a) => (
-                  <UnionAgreementRow key={a.id} agreement={a} />
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* ── Uploaded Agreements Section ── */}
-          <section>
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">Uploaded Agreements</h2>
-                <p className="text-sm text-gray-500">PDFs you've uploaded and analyzed privately</p>
-              </div>
-              {!showUpload && (
-                <button
-                  onClick={() => setShowUpload(true)}
-                  className="btn-secondary btn-sm"
-                >
-                  + Upload Agreement
-                </button>
-              )}
+          ) : (
+            <div className="space-y-4">
+              {unionAgreements.map((a) => (
+                <UnionAgreementRow key={a.id} agreement={a} />
+              ))}
             </div>
+          )}
+        </section>
 
-            {showUpload && (
-              <div className="mb-4">
-                <UploadFlow
-                  onComplete={() => { setShowUpload(false); refetch(); }}
-                  onCancel={() => setShowUpload(false)}
-                />
-              </div>
+        {/* ── Uploaded Agreements Section ── */}
+        <section>
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h2 className="text-lg font-bold text-gray-900">Uploaded Agreements</h2>
+              <p className="text-sm text-gray-500">PDFs you've uploaded and analyzed privately</p>
+            </div>
+            {!showUpload && (
+              <button
+                onClick={() => setShowUpload(true)}
+                className="btn-secondary btn-sm"
+              >
+                + Upload Agreement
+              </button>
             )}
+          </div>
 
-            {!personalAgreements || personalAgreements.length === 0 ? (
-              !showUpload && (
-                <div className="card-brutal p-8 text-center">
-                  <div className="text-3xl mb-3">📄</div>
-                  <h3 className="font-semibold text-gray-900 mb-1">No agreements uploaded</h3>
-                  <p className="text-gray-500 text-sm mb-4">
-                    If your union isn't on Perky yet, upload your collective agreement PDF and we'll
-                    use AI to extract your benefits.
-                  </p>
-                  <button onClick={() => setShowUpload(true)} className="btn-secondary btn-sm">
-                    Upload Your First Agreement
-                  </button>
-                </div>
-              )
-            ) : (
-              <div className="space-y-4">
-                {personalAgreements.map((a) => (
-                  <AgreementRow key={a.id} agreement={a} onDelete={() => refetch()} />
-                ))}
+          {showUpload && (
+            <div className="mb-4">
+              <UploadFlow
+                onComplete={() => { setShowUpload(false); refetch(); }}
+                onCancel={() => setShowUpload(false)}
+              />
+            </div>
+          )}
+
+          {personalLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-2 border-perky-600 border-t-transparent" />
+            </div>
+          ) : !personalAgreements || personalAgreements.length === 0 ? (
+            !showUpload && (
+              <div className="card-brutal p-8 text-center">
+                <div className="text-3xl mb-3">📄</div>
+                <h3 className="font-semibold text-gray-900 mb-1">No agreements uploaded</h3>
+                <p className="text-gray-500 text-sm mb-4">
+                  If your union isn't on Perky yet, upload your collective agreement PDF and we'll
+                  use AI to extract your benefits.
+                </p>
+                <button onClick={() => setShowUpload(true)} className="btn-secondary btn-sm">
+                  Upload Your First Agreement
+                </button>
               </div>
-            )}
-          </section>
-        </div>
-      )}
+            )
+          ) : (
+            <div className="space-y-4">
+              {personalAgreements.map((a) => (
+                <AgreementRow key={a.id} agreement={a} onDelete={() => refetch()} />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </Layout>
   );
 }
 
 // ── Union Agreement Row ──────────────────────────────────────────
-function UnionAgreementRow({
-  agreement,
-}: {
-  agreement: {
-    id: string;
-    title: string;
-    union_name: string;
-    benefit_count: number;
-    joined_at: string;
-  };
-}) {
+function UnionAgreementRow({ agreement }: { agreement: MemberAgreementView }) {
   const leave = useLeaveAgreement();
 
   const handleLeave = async () => {
