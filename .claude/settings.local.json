@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git init:*)",
+      "Bash(cat:*)",
+      "Bash(npm install)",
+      "Bash(timeout 15 npx wrangler dev:*)",
+      "Bash(npx vite build:*)",
+      "Bash(npx wrangler d1 migrations apply:*)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(lsof:*)",
+      "Bash(xargs kill:*)",
+      "Bash(curl:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}

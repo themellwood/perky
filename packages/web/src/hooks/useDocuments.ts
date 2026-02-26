@@ -28,10 +28,8 @@ export function useUploadDocument() {
       const formData = new FormData();
       formData.append('file', file);
 
-      const token = localStorage.getItem('perky_token');
       const response = await fetch(`/api/documents/upload/${agreementId}`, {
         method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: formData,
         credentials: 'include',
       });

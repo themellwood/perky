@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "perky-api",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["wrangler", "dev", "--port", "8787", "--config", "packages/api/wrangler.toml"],
+      "port": 8787
+    },
+    {
+      "name": "perky-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace=@perky/web", "--", "--port", "5173"],
+      "port": 5173
+    }
+  ]
+}

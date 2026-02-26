@@ -1,0 +1,26 @@
+{
+  "name": "perky",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace=@perky/api",
+    "dev:web": "npm run dev --workspace=@perky/web",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "build:api": "npm run build --workspace=@perky/api",
+    "build:web": "npm run build --workspace=@perky/web",
+    "build": "npm run build:api && npm run build:web",
+    "deploy:api": "npm run deploy --workspace=@perky/api",
+    "deploy:web": "npm run deploy --workspace=@perky/web",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "lint": "eslint packages/*/src/**/*.{ts,tsx}",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0",
+    "wrangler": "^3.99.0"
+  }
+}

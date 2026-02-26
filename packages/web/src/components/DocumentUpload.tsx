@@ -276,7 +276,7 @@ export function DocumentUpload({ agreementId, hasDocument, onComplete }: Props) 
           <div className="animate-spin rounded-full h-10 w-10 border-2 border-perky-600 border-t-transparent mx-auto mb-4" />
           <h3 className="font-semibold text-gray-900 mb-1">AI is Analyzing Your Document</h3>
           <p className="text-sm text-gray-500 mb-3">
-            Scanning the agreement and extracting benefit details... This uses two AI passes.
+            Reading the agreement and extracting all benefit details in one pass...
           </p>
 
           {/* Timer */}

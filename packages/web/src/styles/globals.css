@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-[#fafaf5] text-ink antialiased;
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+}
+
+@layer components {
+  /* Primary button — punchy green with thick border and hard shadow */
+  .btn-primary {
+    @apply bg-perky-600 text-white font-semibold px-5 py-2.5
+           border-3 border-ink rounded-brutal shadow-brutal
+           hover:shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px]
+           active:shadow-brutal-none active:translate-x-[4px] active:translate-y-[4px]
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-brutal disabled:hover:translate-x-0 disabled:hover:translate-y-0
+           transition-all duration-100;
+  }
+
+  /* Secondary button — white/outline */
+  .btn-secondary {
+    @apply bg-white text-ink font-semibold px-5 py-2.5
+           border-3 border-ink rounded-brutal shadow-brutal
+           hover:shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px]
+           hover:bg-gray-50
+           active:shadow-brutal-none active:translate-x-[4px] active:translate-y-[4px]
+           transition-all duration-100;
+  }
+
+  /* Accent/CTA button — fight yellow for high-visibility actions */
+  .btn-accent {
+    @apply bg-fight-500 text-ink font-bold px-5 py-2.5
+           border-3 border-ink rounded-brutal shadow-brutal
+           hover:shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px]
+           active:shadow-brutal-none active:translate-x-[4px] active:translate-y-[4px]
+           transition-all duration-100;
+  }
+
+  /* Danger button */
+  .btn-danger {
+    @apply bg-red-500 text-white font-semibold px-5 py-2.5
+           border-3 border-ink rounded-brutal shadow-brutal
+           hover:shadow-brutal-sm hover:translate-x-[2px] hover:translate-y-[2px]
+           active:shadow-brutal-none active:translate-x-[4px] active:translate-y-[4px]
+           transition-all duration-100;
+  }
+
+  /* Small button variant */
+  .btn-sm {
+    @apply px-3 py-1.5 text-sm shadow-brutal-sm
+           hover:shadow-brutal-none hover:translate-x-[2px] hover:translate-y-[2px];
+  }
+
+  /* Card — thick border + hard shadow */
+  .card-brutal {
+    @apply bg-white border-3 border-ink rounded-brutal shadow-brutal;
+  }
+
+  /* Input fields */
+  .input-brutal {
+    @apply w-full px-3 py-2 border-3 border-ink rounded-brutal text-sm
+           focus:outline-none focus:ring-2 focus:ring-perky-500 focus:ring-offset-1
+           bg-white;
+  }
+
+  /* Select inputs */
+  .select-brutal {
+    @apply px-3 py-2 border-3 border-ink rounded-brutal text-sm
+           focus:outline-none focus:ring-2 focus:ring-perky-500 focus:ring-offset-1
+           bg-white;
+  }
+
+  /* Badge/tag — blocky, not pill */
+  .badge-brutal {
+    @apply text-xs font-semibold px-2 py-0.5 border-2 border-ink rounded-[4px];
+  }
+}
