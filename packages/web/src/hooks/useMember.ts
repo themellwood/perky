@@ -35,7 +35,7 @@ export function useLeaveAgreement() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (agreementId: string) =>
-      api.delete<{ success: boolean }>(`/member/agreements/${agreementId}`).then(r => r.data),
+      api.delete<boolean>(`/member/agreements/${agreementId}`).then(r => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['member', 'agreements'] });
       qc.invalidateQueries({ queryKey: ['usage'] });
